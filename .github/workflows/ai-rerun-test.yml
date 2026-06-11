@@ -92,7 +92,8 @@ jobs:
 
           for i in {1..60}; do
             QUEUE_JSON=$(curl -s --user "$JENKINS_USER:$JENKINS_TOKEN" "${QUEUE_URL}api/json")
-            BUILD_URL=$(echo "$QUEUE_JSON" | jq -r '.executable.url // empty')
+            RAW_BUILD_URL=$(echo "$QUEUE_JSON" | jq -r '.executable.url // empty')
+            BUILD_URL=$(echo "$RAW_BUILD_URL" | sed "s|http://[^/]*/|${JENKINS_URL}/|")
 
             if [ -n "$BUILD_URL" ]; then
               break
