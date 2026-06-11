@@ -1,0 +1,27 @@
+{
+  "name": "github-ai-rerun-demo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pablodemelomflex/github-ai-rerun-demo.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/pablodemelomflex/github-ai-rerun-demo/issues"
+  },
+  "homepage": "https://github.com/pablodemelomflex/github-ai-rerun-demo#readme",
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
+  }
+}
