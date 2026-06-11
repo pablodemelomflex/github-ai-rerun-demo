@@ -4,6 +4,11 @@ on:
   issue_comment:
     types: [created]
 
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
 jobs:
   rerun-tests:
     if: >
@@ -30,15 +35,137 @@ jobs:
             core.setOutput('sha', pr.head.sha);
             core.setOutput('pr_number', prNumber);
 
-      - name: Trigger Jenkins job
-        run: |
-          curl -i -X POST "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \
-            --user "$JENKINS_USER:$JENKINS_TOKEN" \
-            --data-urlencode "BRANCH=${{ steps.pr.outputs.branch }}" \
-            --data-urlencode "PR_NUMBER=${{ steps.pr.outputs.pr_number }}" \
-            --data-urlencode "COMMIT_SHA=${{ steps.pr.outputs.sha }}"
+      - name: Set GitHub status pending
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: '${{ steps.pr.outputs.sha }}',
+              state: 'pending',
+              context: 'ai-rerun-test/jenkins',
+              description: 'Jenkins tests are running...',
+              target_url: '${{ secrets.JENKINS_URL }}/job/${{ secrets.JENKINS_JOB }}/'
+            });
+
+      - name: Trigger Jenkins and wait result
+        id: jenkins
+        shell: bash
         env:
           JENKINS_URL: ${{ secrets.JENKINS_URL }}
           JENKINS_JOB: ${{ secrets.JENKINS_JOB }}
           JENKINS_USER: ${{ secrets.JENKINS_USER }}
           JENKINS_TOKEN: ${{ secrets.JENKINS_TOKEN }}
+          BRANCH: ${{ steps.pr.outputs.branch }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          COMMIT_SHA: ${{ steps.pr.outputs.sha }}
+        run: |
+          set -e
+
+          echo "Triggering Jenkins job..."
+
+          RESPONSE_HEADERS=$(mktemp)
+
+          curl -s -i -X POST "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \
+            --user "$JENKINS_USER:$JENKINS_TOKEN" \
+            --data-urlencode "BRANCH=$BRANCH" \
+            --data-urlencode "PR_NUMBER=$PR_NUMBER" \
+            --data-urlencode "COMMIT_SHA=$COMMIT_SHA" \
+            -D "$RESPONSE_HEADERS" \
+            -o /dev/null
+
+          QUEUE_URL=$(grep -i '^Location:' "$RESPONSE_HEADERS" | awk '{print $2}' | tr -d '\r')
+
+          if [ -z "$QUEUE_URL" ]; then
+            echo "Could not get Jenkins queue URL"
+            echo "result=ERROR" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "Queue URL: $QUEUE_URL"
+          echo "Waiting for Jenkins build to start..."
+
+          BUILD_URL=""
+
+          for i in {1..60}; do
+            QUEUE_JSON=$(curl -s --user "$JENKINS_USER:$JENKINS_TOKEN" "${QUEUE_URL}api/json")
+            BUILD_URL=$(echo "$QUEUE_JSON" | jq -r '.executable.url // empty')
+
+            if [ -n "$BUILD_URL" ]; then
+              break
+            fi
+
+            sleep 2
+          done
+
+          if [ -z "$BUILD_URL" ]; then
+            echo "Jenkins build did not start in time"
+            echo "result=ERROR" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "Build URL: $BUILD_URL"
+          echo "build_url=$BUILD_URL" >> "$GITHUB_OUTPUT"
+
+          echo "Waiting for Jenkins build to finish..."
+
+          RESULT=""
+          BUILD_NUMBER=""
+
+          for i in {1..300}; do
+            BUILD_JSON=$(curl -s --user "$JENKINS_USER:$JENKINS_TOKEN" "${BUILD_URL}api/json")
+
+            BUILDING=$(echo "$BUILD_JSON" | jq -r '.building')
+            RESULT=$(echo "$BUILD_JSON" | jq -r '.result // empty')
+            BUILD_NUMBER=$(echo "$BUILD_JSON" | jq -r '.number')
+
+            if [ "$BUILDING" = "false" ]; then
+              break
+            fi
+
+            sleep 2
+          done
+
+          if [ -z "$RESULT" ]; then
+            RESULT="ERROR"
+          fi
+
+          echo "Jenkins result: $RESULT"
+
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+
+          if [ "$RESULT" != "SUCCESS" ]; then
+            exit 1
+          fi
+
+      - name: Set GitHub status success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: '${{ steps.pr.outputs.sha }}',
+              state: 'success',
+              context: 'ai-rerun-test/jenkins',
+              description: 'Jenkins tests passed',
+              target_url: '${{ steps.jenkins.outputs.build_url }}'
+            });
+
+      - name: Set GitHub status failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: '${{ steps.pr.outputs.sha }}',
+              state: 'failure',
+              context: 'ai-rerun-test/jenkins',
+              description: 'Jenkins tests failed or could not complete',
+              target_url: '${{ steps.jenkins.outputs.build_url || secrets.JENKINS_URL }}'
+            });
