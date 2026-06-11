@@ -1,0 +1,44 @@
+name: AI Rerun Tests
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  rerun-tests:
+    if: >
+      github.event.issue.pull_request &&
+      github.event.comment.body == '/ai-rerun-test'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get PR info
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.issue.number;
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            core.setOutput('branch', pr.head.ref);
+            core.setOutput('sha', pr.head.sha);
+            core.setOutput('pr_number', prNumber);
+
+      - name: Trigger Jenkins job
+        run: |
+          curl -i -X POST "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \
+            --user "$JENKINS_USER:$JENKINS_TOKEN" \
+            --data-urlencode "BRANCH=${{ steps.pr.outputs.branch }}" \
+            --data-urlencode "PR_NUMBER=${{ steps.pr.outputs.pr_number }}" \
+            --data-urlencode "COMMIT_SHA=${{ steps.pr.outputs.sha }}"
+        env:
+          JENKINS_URL: ${{ secrets.JENKINS_URL }}
+          JENKINS_JOB: ${{ secrets.JENKINS_JOB }}
+          JENKINS_USER: ${{ secrets.JENKINS_USER }}
+          JENKINS_TOKEN: ${{ secrets.JENKINS_TOKEN }}
