@@ -57,9 +57,10 @@ jobs:
           JENKINS_JOB: ${{ secrets.JENKINS_JOB }}
           JENKINS_USER: ${{ secrets.JENKINS_USER }}
           JENKINS_TOKEN: ${{ secrets.JENKINS_TOKEN }}
-          BRANCH: ${{ steps.pr.outputs.branch }}
-          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
-          COMMIT_SHA: ${{ steps.pr.outputs.sha }}
+          APP_REPO_URL: https://github.com/${{ github.repository }}.git
+          APP_BRANCH: ${{ steps.pr.outputs.branch }}
+          APP_PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          APP_COMMIT_SHA: ${{ steps.pr.outputs.sha }}
         run: |
           set -e
 
@@ -69,9 +70,10 @@ jobs:
 
           curl -s -i -X POST "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \
             --user "$JENKINS_USER:$JENKINS_TOKEN" \
-            --data-urlencode "BRANCH=$BRANCH" \
-            --data-urlencode "PR_NUMBER=$PR_NUMBER" \
-            --data-urlencode "COMMIT_SHA=$COMMIT_SHA" \
+            --data-urlencode "APP_REPO_URL=$APP_REPO_URL" \
+            --data-urlencode "APP_BRANCH=$APP_BRANCH" \
+            --data-urlencode "APP_PR_NUMBER=$APP_PR_NUMBER" \
+            --data-urlencode "APP_COMMIT_SHA=$APP_COMMIT_SHA" \
             -D "$RESPONSE_HEADERS" \
             -o /dev/null
 
